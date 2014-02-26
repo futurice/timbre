@@ -181,6 +181,14 @@
 (defn set-config!   [ks val] (swap! config assoc-in ks val))
 (defn merge-config! [& maps] (apply swap! config encore/merge-deep maps))
 
+(def ^:dynamic *config-dynamic* nil)
+(defmacro with-config
+  "Allows thread-local configuration override."
+  [config & body] `(binding [*config-dynamic* ~config] ~@body))
+
+(defmacro current-config "Precedence: dynamic > atom."
+  [] `(or *config-dynamic* @config))
+
 ;;;; Appender-fn decoration
 
 (defn default-args-hash-fn
@@ -380,7 +388,7 @@
 
 (defn logging-enabled? "For 3rd-party utils, etc."
   [level & [compile-time-ns]]
-  (let [config' @config]
+  (let [config' (current-config)]
     (and (level-sufficient? level config')
          (or (nil? compile-time-ns)
              (ns-unfiltered? config' compile-time-ns)))))
@@ -390,7 +398,7 @@
    level base-appender-args log-vargs ns throwable message
    ;; Additional args provided by Timbre only:
    & [juxt-fn msg-type file line]]
-  (when-let [juxt-fn (or juxt-fn (get-in (compile-config @config)
+  (when-let [juxt-fn (or juxt-fn (get-in (compile-config (current-config))
                                          [:appenders-juxt level]))]
     (juxt-fn
      (conj (or base-appender-args {})
@@ -422,7 +430,7 @@
     `(let [;;; Support [level & log-args], [config level & log-args] sigs:
            s1# ~s1
            default-config?# (levels-scored s1#)
-           config# (if default-config?# @config s1#)
+           config# (if default-config?# (current-config) s1#)
            level#  (if default-config?# s1#     ~s2)
            compile-time-ns# ~(str *ns*)]
        ;; (println "DEBUG: Runtime level check")
